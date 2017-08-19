@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.animation as animation
 import matplotlib.patheffects as path_effects
-%matplotlib inline
 from fitsio import FITS,FITSHDR
 from scipy.interpolate import RectBivariateSpline,interp2d
 from tqdm import tqdm
@@ -12,6 +11,7 @@ from glob import glob
 import scipy.io as sio
 from scipy import signal
 import pickle
+from astropy.io import fits
 
 def lsfitter(x_orig,y_orig,x_fit,y_fit,bins,plot=False,fit_type='shift'):
 
@@ -33,28 +33,35 @@ def lsfitter(x_orig,y_orig,x_fit,y_fit,bins,plot=False,fit_type='shift'):
     if fit_type=='flux':
         chi=np.zeros(len(bins))
         for i in xrange(len(bins)):
-            chi[i]=(1./float(len(y_fit)))*np.nansum(((y_fit-y_orig*bins[i])**2)/y_fit)
+            chi[i]=(1./float(len(y_fit)))*np.nansum(((y_fit-np.interp(x_fit,x_orig,y_orig)*bins[i])**2)/y_fit)
         if plot==True:
             plt.figure()
             plt.plot(bins,chi)
             plt.axvline(bins[np.argmin(chi)])
     return bins[np.argmin(chi)]
-def lsfitter_r(x_orig,y_orig,x_fit,y_fit,fit_type='shift',plot=False,n=100,max=1):
+
+
+def lsfitter_r(x_orig,y_orig,x_fit,y_fit,fit_type='shift',plot=False,n=100,max=1,nloops=3):
     loc=0.
-    for loop in np.arange(3.):
+    for loop in np.arange(nloops):
         bins=np.logspace(np.log10(0.001/(10.**loop)),np.log10(max/(10.**loop)),n/2)
         bins=np.append(np.sort(-bins),bins)+loc
         if fit_type=='flux':
             bins+=1
         loc=lsfitter(x_orig,y_orig,x_fit,y_fit,bins,fit_type=fit_type,plot=plot)
     return loc
+
+
 def qualify(time,data,times):
         x,y=time,np.nansum(np.nansum(data,axis=1),axis=1)
         s=set(np.arange(len(data)))
         for b in times:
-            low,high=np.asarray(b.split(':'),dtype=float)
-            bs=set(np.where((x>=low)&(x<=high))[0])
-            s=s-bs
+            try:
+                low,high=np.asarray(b.split(':'),dtype=float)
+                bs=set(np.where((x>=low)&(x<=high))[0])
+                s=s-bs
+            except:
+                continue
         bs=set(np.where(y==0)[0])
         s=s-bs
         return np.asarray(list(s))
@@ -156,7 +163,17 @@ def animatemods(psfdir='../psf_models/psf_data_8_18_08/PSF_Mono/',imgdir='../ima
             lam.append(f.split('_')[-1][0:-4])
         animateim(np.log10(psf),labels=lam,outfile='{}psf_module{}.mp4'.format(imgdir,mno),title='Module {} Corner {}'.format(mno,cno))
 
-def calc_psf(infile='../data/dip.fits',plotname='../images/3DPSF.png',times=None,plot=False,bad=['763:765'],outfile=infile.split('.fits')[0]+'.p'):
+
+
+
+def calc_psf(infile='../data/dip.fits',plotname='../images/3DPSF.png',times=None,plot=False,bad=['763:765'],outfile=None):
+    if (outfile is None):
+        outfile=infile.split('.fits')[0]+'.p'
+
+    h=fits.open('../data/test1/red_2.fits')
+    mno=h[0].header['MODULE']
+    column,row,output=h[1].header['1CRV5P'],h[1].header['2CRV5P'],h[0].header['OUTPUT']
+
     data = fitsio.read(infile,ext=1,columns='FLUX')
     time = fitsio.read(infile,ext=1,columns='TIME')
     
@@ -200,6 +217,6 @@ def calc_psf(infile='../data/dip.fits',plotname='../images/3DPSF.png',times=None
         plt.savefig(plotname,dpi=fig.dpi,bbox_inches='tight')
         plt.close()
 
-    results={'x3d':x3d,'y3d':y3d,'data':data,'ok':ok,'time':time,'xshift':xshift,'yshift':yshift}
+    results={'x3d':x3d,'y3d':y3d,'data':data,'ok':ok,'time':time,'xshift':xshift,'yshift':yshift,'MODULE':mno,'OUTPUT':output,'COLUMN':column,'ROW':row}
     pickle.dump(results,open(outfile,'wb'))
     return
