@@ -14,7 +14,48 @@ import pickle
 from astropy.io import fits
 from scipy.spatial import Delaunay
     
+def dump_model():
+    module=2
+    output=1
+    fnames=glob('{}Module_{}/{}/*.mat'.format(psfdir,module,module+0.1*output))
+    lam=np.asarray([(f.split('_')[-1])[0:-4] for f in fnames],dtype='float')
+    #psf_model=np.zeros((24,4,len(fnames),50,50))
 
+    for module in tqdm(np.arange(13,25)):
+        for output in np.arange(1,5):
+            fnames=glob('{}Module_{}/{}/*.mat'.format(psfdir,module,module+0.1*output))
+            for l in (xrange(len(fnames))):
+                h=sio.loadmat(fnames[0])
+                psf=np.zeros((len(fnames),np.shape(h['psf'])[0],np.shape(h['psf'])[1]))
+                res=h['grid_res'][0][0]
+                lam=[]
+                for i,f in enumerate(fnames):
+                    h=sio.loadmat(f)
+                    try:
+                        psf[i,:,:]=h['psf']
+                    except:
+                        continue
+                    
+                PRFx = np.arange(0., np.shape(psf[0])[0] + 0.)-np.shape(psf[0])[0]/2
+                PRFy = np.arange(0., np.shape(psf[0])[1] + 0.)-np.shape(psf[0])[0]/2
+                PRFx*=0.03
+                PRFy*=0.03
+                PRFX,PRFY=np.meshgrid(PRFx,PRFy)    
+                cx=PRFX[0][np.where(PRFX[0]>=0)[0][0]:np.where(PRFX[0]<1)[0][-1]]
+                cy=PRFY[:,0][np.where(PRFY[:,0]>=0)[0][0]:np.where(PRFY[:,0]<1)[0][-1]]
+                cx,cy=np.meshgrid(cx,cy)
+                prf=np.copy(cx)*0.+1.
+                psf_c=convolve2d(psf[l,:,:],prf,mode='same')
+
+                psf_c/=np.nansum(psf_c)
+
+                model=RectBivariateSpline(PRFx,PRFy,psf_c)
+                X,Y=np.meshgrid(np.linspace(-3,3,50),np.linspace(-3,3,50))
+
+                PRFX,PRFY,psf_c=X,Y,model(X[0],Y[:,0])
+
+                psf_model[module-1,output-1,l,:,:]=psf_c
+    pickle.dump(psf_model,open('psf_model.p','wb'))
 
 
 def lsfitter(x_orig,y_orig,x_fit,y_fit,bins,plot=False,fit_type='shift'):
